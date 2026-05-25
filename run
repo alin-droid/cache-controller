@@ -1,0 +1,56 @@
+# add all Verilog source files, separated by spaces
+set sourcefiles {cache_controller.v testbench.v}
+
+# set name of the top module
+set topmodule fsm_tb
+
+###################################################
+#####DO NOT MODIFY THE SCRIPT BELOW THIS LINE#####
+###################################################
+
+# quit current simulation if any
+quit -sim
+
+# empty the work library if present
+if [file exists "work"] {
+    vdel -all
+}
+
+# create a new work library
+vlib work
+
+# run the compiler
+if [catch "eval vlog $sourcefiles"] {
+    puts "correct the compilation errors"
+    return
+}
+
+# start simulation
+vsim -voptargs=+acc $topmodule
+
+# add signals to waveform
+add wave -position end sim:/fsm_tb/clk
+add wave -position end sim:/fsm_tb/rst
+add wave -position end sim:/fsm_tb/read
+add wave -position end sim:/fsm_tb/write
+add wave -position end sim:/fsm_tb/hit
+add wave -position end sim:/fsm_tb/memory_ready
+
+add wave -position end sim:/fsm_tb/address
+add wave -position end sim:/fsm_tb/data_from_CPU
+add wave -position end sim:/fsm_tb/data_to_CPU
+
+add wave -position end sim:/fsm_tb/memory_req
+add wave -position end sim:/fsm_tb/SUCCESS
+add wave -position end sim:/fsm_tb/st
+
+add wave -position end sim:/fsm_tb/cache_line_0
+add wave -position end sim:/fsm_tb/cache_line_1
+add wave -position end sim:/fsm_tb/dirty_line_0
+add wave -position end sim:/fsm_tb/dirty_line_1
+
+# run simulation
+run -all
+
+# zoom waveform
+wave zoom full
