@@ -1,9 +1,10 @@
+
 module fsm_tb;
     reg clk, rst, read, write, hit, memory_ready;
     reg [31:0] address;
     reg [31:0] data_from_CPU;
     
-    wire SUCCESS;
+    wire cpu_ready;
     wire [31:0] data_to_CPU;
     wire memory_req;
     wire [3:0] st; 
@@ -18,22 +19,22 @@ module fsm_tb;
         .address(address),
         .data_from_CPU(data_from_CPU),
         .memory_req(memory_req),
-        .SUCCESS(SUCCESS),
+        .cpu_ready(cpu_ready),
         .data_to_CPU(data_to_CPU)
     );
     
-    //pt a aparea in waveform
+    // used to make the current state visible in the waveform
     assign st = uut.st;
      
     always #10 clk = ~clk;
 
-    //pt a a aparea in waveform si cache si dirty_bit pt ficare linie 
+    // used to make the cache lines and dirty bits visible in the waveform
     wire [31:0] cache_line_0 = uut.cache_mem[0];
     wire [31:0] cache_line_1 = uut.cache_mem[1];
     wire dirty_line_0 = uut.dirty_mem[0];
     wire dirty_line_1 = uut.dirty_mem[1];
     
-    //functie de afisare a starilor ca nume sa fie mai usor de urmarit
+    // task used to display the state names, making the simulation easier to follow
     task print_state;
         begin 
             case(st) 
@@ -49,7 +50,7 @@ module fsm_tb;
                 default: $write("UNKNOWN");
             endcase
 
-            $write("(dirty=%b, success=%b) ", uut.dirty_mem[uut.idx], SUCCESS);
+            $write("(dirty=%b, cpu_ready=%b) ", uut.dirty_mem[uut.idx], cpu_ready);
         end
     endtask
     
@@ -61,7 +62,7 @@ module fsm_tb;
         input [31:0] task_addr;
         input [31:0] task_data;
         
-        //ce vine de la cache la operatia de read
+        // stores the data returned by the cache during a read operation
         reg [31:0] captured_data;
 
         begin
@@ -76,8 +77,9 @@ module fsm_tb;
             #1;
             print_state(); 
             
-            //pt a simula schimbul cache cere la ram , ram da la cache
-            //while pt ca astept sa ajung in idle
+            // simulates the exchange between cache and RAM:
+            // the cache sends a memory request, and RAM responds when ready
+            // the while loop is used because we wait until the FSM returns to IDLE
             while (st != 4'b0000) begin
                 if (memory_req) begin
                     #5;
@@ -85,8 +87,8 @@ module fsm_tb;
                     #5;
                 end
                 
-                //cum am scris mai sus daca e read capturae data e ce vine de la cache               
-                if (SUCCESS && task_read) begin
+                // if the operation is a read, capture the data sent from cache to CPU              
+                if (cpu_ready && task_read) begin
                     captured_data = data_to_CPU;
                 end
 
@@ -96,11 +98,11 @@ module fsm_tb;
                 memory_ready <= 1'b0; 
             end
            
-             //afisa niste mesaje de debug ca sa ne asiguram ca totul merge ok
+            // prints debug messages to check that everything works correctly
             if (task_read)
-                $display("Citire de la adresa %h: Date trimise la CPU = %h", task_addr, captured_data);
+                $display("read at address %h: data to CPU = %h", task_addr, captured_data);
             else if (task_write)
-                $display("Scriere la adresa %h: Date salvate in Cache = %h", task_addr, task_data);
+                $display("write at adress %h: data saved in cache = %h", task_addr, task_data);
 
             read  <= 0;
             write <= 0;
@@ -113,8 +115,6 @@ module fsm_tb;
     initial begin
         $dumpfile("dump.vcd");
         $dumpvars(0, fsm_tb);
-
-        $display("-- Cache Controller 2 Lines Simulation (7 Tests) --\n");
         
         clk = 0;
         rst = 0;
@@ -130,25 +130,25 @@ module fsm_tb;
         #5; 
         
      
-        $display("1: citire cu HIT din Linia 0");
+        $display("line 0 read hit");
         run_fsm(1, 0, 1, 32'h00002000, 32'h0); 
 
-        $display("2: citire cu MISS in Linia 0");
+        $display("line 0 read miss");
         run_fsm(1, 0, 0, 32'h00002000, 32'h0); 
         
-        $display("3: scriere cu HIT in Linia 1");
+        $display("line 1 write hit 3");
         run_fsm(0, 1, 1, 32'h00002004, 32'hDEADBEEF); 
 
-        $display("4: scriere cu MISS in Linia 1 (va face WRITE_BACK fiindca e dirty)");
+        $display("line 1 write miss 4: (write back , dirty=1) ");
         run_fsm(0, 1, 0, 32'hFFFF0004, 32'hCAFEAFFE); 
 
-        $display("5: citire cu HIT din Linia 1 (verificam daca s-a pastrat valoarea)");
+        $display("line 1 read hit (to see if the value is modified)");
         run_fsm(1, 0, 1, 32'hFFFF0004, 32'h0);
 
-        $display("6: scriere cu MISS in linia 0 (linia e curata, nu mai face WRITE_BACK!)");
+        $display("line 0 write miss (no need for write back)");
         run_fsm(0, 1, 0, 32'h00005000, 32'h12345678);
 
-        $display("7: Citire cu HIT din Linia 0");
+        $display("line 0 read hit");
         run_fsm(1, 0, 1, 32'h00005000, 32'h0);
         
 

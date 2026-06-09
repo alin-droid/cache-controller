@@ -1,3 +1,4 @@
+
 module fsm(
     input clk,
     input rst,
@@ -8,77 +9,77 @@ module fsm(
     input [31:0] address,             
     input [31:0] data_from_CPU,       
     output reg memory_req,            
-    output reg SUCCESS,               
+    output reg cpu_ready,               
     output reg [31:0] data_to_CPU     
 );
 
-    // aici definesc starile automatului
-    // fiecare stare reprezinta un pas din functionarea cache-ului
-    localparam ST_IDLE       = 4'b0000; // asteapta o cerere de read sau write
-    localparam ST_COMPARE    = 4'b0001; // verifica daca adresa se afla deja in cache
-    localparam ST_READ_HIT   = 4'b0010; // citire reusita direct din cache
-    localparam ST_READ_MISS  = 4'b0011; // citire dupa ce datele au fost aduse in cache
-    localparam ST_WRITE_HIT  = 4'b0100; // scriere direct in cache, pentru ca exista hit
-    localparam ST_WRITE_MISS = 4'b0101; // scriere dupa ce linia a fost adusa in cache
-    localparam ST_WRITE_BACK = 4'b0110; // scrie inapoi in memorie daca linia este dirty
-    localparam ST_EVICT      = 4'b0111; // elimina linia veche din cache
-    localparam ST_ALLOCATE   = 4'b1000; // aduce o linie noua din memorie in cache
+    // here I define the states of the finite state machine
+    // each state represents one step in the cache operation
+    localparam ST_IDLE       = 4'b0000; // waits for a read or write request
+    localparam ST_COMPARE    = 4'b0001; // checks if the address is already in cache
+    localparam ST_READ_HIT   = 4'b0010; // successful read directly from cache
+    localparam ST_READ_MISS  = 4'b0011; // read after the data has been brought into cache
+    localparam ST_WRITE_HIT  = 4'b0100; // write directly into cache because there is a hit
+    localparam ST_WRITE_MISS = 4'b0101; // write after the line has been brought into cache
+    localparam ST_WRITE_BACK = 4'b0110; // writes back to memory if the line is dirty
+    localparam ST_EVICT      = 4'b0111; // removes the old line from cache
+    localparam ST_ALLOCATE   = 4'b1000; // brings a new line from memory into cache
     
-    // starea curenta si starea urmatoare
+    // current state and next state
     reg [3:0] st;        
     reg [3:0] st_next;   
     
-    // fiecare linie din cache are cate un dirty bit
-    // dirty = 1 inseamna ca linia a fost modificata si trebuie salvata in memorie
+    // each cache line has a dirty bit
+    // dirty = 1 means that the line was modified and must be saved to memory
     reg dirty_mem [0:1];           
     
-    // cache-ul are 2 linii, fiecare linie avand 32 de biti
+    // the cache has 2 lines, each line having 32 bits
     reg [31:0] cache_mem [0:1]; 
     
-    // folosesc bitul 2 din adresa ca index
-    // pentru ca am doar 2 linii de cache, indexul poate fi 0 sau 1
+    // I use bit 2 from the address as index
+    // because I only have 2 cache lines, the index can be 0 or 1
     wire idx = address[2]; 
 
-    // aici actualizez starea automatului si dirty bit-ul
+    // here I update the FSM state and the dirty bit
     always @ (posedge clk or posedge rst) begin
         if(rst) begin
-            // la reset, automatul porneste din starea IDLE
-            // si liniile din cache sunt considerate curate
+            // on reset, the FSM starts from the IDLE state
+            // and the cache lines are considered clean
             st <= ST_IDLE; 
             dirty_mem[0] <= 1'b0;
             dirty_mem[1] <= 1'b0;
         end
         else begin
-            // la fiecare front pozitiv de ceas trec in starea urmatoare
+            // on each positive clock edge, I move to the next state
             st <= st_next;
             
-            // daca am facut o scriere, linia respectiva devine dirty
-            // adica s-a modificat in cache fata de memoria principala
+            // if a write was performed, that line becomes dirty
+            // meaning it was modified in cache compared to main memory
             if(st_next == ST_WRITE_HIT || st_next == ST_WRITE_MISS) 
                 dirty_mem[idx] <= 1'b1;
 
-            // dupa ce linia a fost evacuata, nu mai este dirty
+            // after the line has been evicted, it is no longer dirty
             else if(st_next == ST_EVICT) 
                 dirty_mem[idx] <= 1'b0;
         end 
     end
   
-    // aici este logica principala a automatului
-    // in functie de starea curenta si de semnale, aleg starea urmatoare
+    // here is the main FSM logic
+    // depending on the current state and signals, I choose the next state
     always @ (*) begin
-        // implicit raman in aceeasi stare
+        // by default, I remain in the same state
         st_next = st;
 
         case(st)
 
             ST_IDLE: begin
-                // automatul sta aici pana cand CPU-ul cere read sau write
+                // the FSM stays here until the CPU requests a read or write
                 if(read || write) 
                     st_next = ST_COMPARE;
             end
             
             ST_COMPARE: begin
-                // daca avem hit, inseamna ca datele sunt deja in cache
+                // if we have a hit, it means the data is already in cache
                 if(hit) begin 
                     if(read)       
                         st_next = ST_READ_HIT;
@@ -86,19 +87,19 @@ module fsm(
                         st_next = ST_WRITE_HIT;
                 end
                 else begin 
-                    // daca avem miss, trebuie sa vedem daca linia veche e dirty
-                    // daca e dirty, trebuie intai scrisa inapoi in memorie
+                    // if we have a miss, we must check if the old line is dirty
+                    // if it is dirty, it must first be written back to memory
                     if(dirty_mem[idx]) 
                         st_next = ST_WRITE_BACK;
 
-                    // daca nu e dirty, o putem elimina direct
+                    // if it is not dirty, we can evict it directly
                     else               
                         st_next = ST_EVICT;
                 end
             end
             
             ST_WRITE_BACK: begin
-                // aici asteptam memoria sa confirme ca a terminat scrierea
+                // here we wait for memory to confirm that the write is complete
                 if(memory_ready)   
                     st_next = ST_EVICT; 
                 else               
@@ -106,71 +107,71 @@ module fsm(
             end
             
             ST_EVICT: begin
-                // dupa ce am eliberat linia, putem aduce datele noi
+                // after freeing the line, we can bring the new data
                 st_next = ST_ALLOCATE;
             end
             
             ST_ALLOCATE: begin
-                // aici asteptam ca memoria sa trimita datele pentru linia noua
+                // here we wait for memory to send the data for the new line
                 if(memory_ready) begin 
-                    // dupa alocare, mergem spre read miss sau write miss,
-                    // in functie de cererea initiala
+                    // after allocation, we go to read miss or write miss,
+                    // depending on the initial request
                     if(read)       
                         st_next = ST_READ_MISS;
                     else if(write) 
                         st_next = ST_WRITE_MISS;
                 end
                 else begin
-                    // daca memoria nu e gata, ramanem aici
+                    // if memory is not ready, we remain here
                     st_next = ST_ALLOCATE;
                 end
             end
             
-            // starile acestea sunt finale pentru operatia curenta
-            // dupa ce operatia s-a terminat, revenim in IDLE
+            // these states are final for the current operation
+            // after the operation is finished, we return to IDLE
             ST_READ_HIT, ST_WRITE_HIT, ST_READ_MISS, ST_WRITE_MISS: begin
                 st_next = ST_IDLE;
             end
 
-            // daca apare o stare necunoscuta, revin in IDLE ca protectie
+            // if an unknown state appears, I return to IDLE as protection
             default: begin
                 st_next = ST_IDLE;
             end
         endcase
     end
 
-    // aici actualizez efectiv continutul cache-ului
+    // here I actually update the cache content
     always @ (posedge clk or posedge rst) begin
         if(rst) begin
-            // la reset pun niste valori initiale, doar ca sa avem ceva in cache
+            // on reset I put some initial values, just so we have something in cache
             cache_mem[0] <= 32'h11112222; 
             cache_mem[1] <= 32'h33334444; 
         end
         else begin
-            // daca am write hit sau write miss, scriu in cache datele venite de la CPU
+            // if we have write hit or write miss, I write the data from the CPU into cache
             if(st == ST_WRITE_HIT || st == ST_WRITE_MISS) begin
                 cache_mem[idx] <= data_from_CPU;
             end
 
-            // daca am allocate si memoria este gata,
-            // simulez aducerea unei linii noi din memorie
+            // if we have allocate and memory is ready,
+            // I simulate bringing a new line from memory
             else if(st == ST_ALLOCATE && memory_ready) begin
                 cache_mem[idx] <= (idx == 0) ? 32'hABCDEFFF : 32'h99999999; 
             end
         end
     end
 
-    // aici generez iesirile automatului
+    // here I generate the FSM outputs
     always @ (*) begin
-        // valori implicite, ca sa evit latch-uri
-        SUCCESS = 1'b0;
+        // default values, to avoid latches
+        cpu_ready = 1'b0;
         memory_req = 1'b0;
         data_to_CPU = 32'h0;
 
         case(st)
 
-            // in starile acestea am nevoie sa comunic cu memoria principala
-            // fie pentru write-back, fie pentru aducerea unei linii noi
+            // in these states I need to communicate with main memory
+            // either for write-back or for bringing a new line
             ST_WRITE_BACK: begin
                 memory_req = 1'b1;
             end
@@ -179,19 +180,20 @@ module fsm(
                 memory_req = 1'b1;
             end
             
-            // la citire, trimit catre CPU valoarea din cache
-            // si activez SUCCESS ca operatia s-a terminat
+            // on read, I send the value from cache to the CPU
+            // and activate cpu_ready because the operation is finished
             ST_READ_HIT, ST_READ_MISS: begin
                 data_to_CPU = cache_mem[idx];
-                SUCCESS = 1'b1;
+                cpu_ready = 1'b1;
             end
             
-            // la scriere nu trebuie sa trimit date catre CPU,
-            // doar anunt ca scrierea s-a terminat
+            // on write, I do not need to send data to the CPU,
+            // I only announce that the write is finished
             ST_WRITE_HIT, ST_WRITE_MISS: begin
-                SUCCESS = 1'b1;
+                cpu_ready = 1'b1;
             end
         endcase
     end
   
 endmodule
+
